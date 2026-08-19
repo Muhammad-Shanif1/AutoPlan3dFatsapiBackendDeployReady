@@ -1,3 +1,4 @@
+import datetime
 from pydantic import BaseModel, ConfigDict
 
 class UserCreateSchema(BaseModel):
@@ -14,6 +15,10 @@ class UserResponseSchema(BaseModel):
     name: str
     email: str
     phone: str
+    subscription: str | None = None
+    subscription_expiry: datetime.datetime | None = None
+    credits: int
+    credits_reset_at: datetime.datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -48,3 +53,22 @@ class ContinueWithGoogleSchema(BaseModel):
     google_id: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class PasswordSchema(BaseModel):
+    password: str
+
+
+class UpdatePasswordSchema(BaseModel):
+    new_password: str
+
+
+class VerifyOTPSchema(BaseModel):
+    email: str
+    otp: str
+
+
+class SupportRequestSchema(BaseModel):
+    email: str
+    category: str
+    details: str

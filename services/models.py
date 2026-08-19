@@ -1,4 +1,4 @@
-from sqlalchemy import Column, ForeignKey, Integer, String, Text, DateTime
+from sqlalchemy import Column, ForeignKey, Integer, String, Text, DateTime, func
 from sqlalchemy.dialects.postgresql import JSONB
 from services.db import Base
 
@@ -14,6 +14,10 @@ class UserModel(Base):
     phone = Column(String(20))
     otp = Column(String(6), nullable=True)
     otp_expiry = Column(DateTime, nullable=True)
+    subscription = Column(String(50), nullable=True, default="free")
+    subscription_expiry = Column(DateTime, nullable=True)
+    credits = Column(Integer, default=40)
+    credits_reset_at = Column(DateTime, nullable=True)
 
 
 class ProjectModel(Base):
@@ -22,5 +26,8 @@ class ProjectModel(Base):
     project_id = Column(Integer, primary_key=True, index=True)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
-    project_data = Column(JSONB, nullable=True) 
+    project_image = Column(String(500), nullable=True)
+    project_data = Column(JSONB, nullable=True)
     user_id=Column(Integer,ForeignKey("Users_Table.id", ondelete="CASCADE")) # if user is deleted then all the tasks of that user will be deleted, 
+    visibility = Column(String(20), nullable=False, default="Private")
+    created_at = Column(DateTime, default=func.now())

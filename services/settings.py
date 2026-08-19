@@ -31,4 +31,19 @@ class Settings(BaseSettings):
     MAIL_STARTTLS: bool = True
     MAIL_SSL_TLS: bool = False
 
+    ADMIN_EMAIL: str = "autoplan3d@gmail.com"
+    ALLOWED_ORIGINS: list[str] = ["*"]
+
+    # Optional path for Graph2Plan integration (used by services/floorplan_model_api.py)
+    GRAPH2PLAN_ROOT: Optional[str] = None
+    GOOGLE_CLIENT_ID: Optional[str] = None
+    GOOGLE_CLIENT_SECRET: Optional[str] = None
+    RESEND_API_KEY: Optional[str] = None
+    BREVO_API_KEY: Optional[str] = None
+
+    # ImageKit
+    IMAGEKIT_PUBLIC_KEY: Optional[str] = None
+    IMAGEKIT_PRIVATE_KEY: Optional[str] = None
+    IMAGEKIT_URL_ENDPOINT: Optional[str] = None
+
 settings = Settings()

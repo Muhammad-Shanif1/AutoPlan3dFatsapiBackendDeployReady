@@ -1,6 +1,17 @@
 from fastapi import APIRouter, status, Depends, Request, BackgroundTasks, HTTPException
 from sqlalchemy.orm import Session
-from schema.user import UserCreateSchema, UserResponseSchema, LoginSchema, UserLoginResponseSchema, ContinueWithGoogleSchema, UserUpdateSchema
+from schema.user import (
+	UserCreateSchema,
+	UserResponseSchema,
+	LoginSchema,
+	UserLoginResponseSchema,
+	ContinueWithGoogleSchema,
+	UserUpdateSchema,
+	PasswordSchema,
+	UpdatePasswordSchema,
+	VerifyOTPSchema,
+	SupportRequestSchema,
+)
 from services.models import UserModel
 import services.controller as controller
 import services.send_email
@@ -25,11 +36,12 @@ def login_endpoint(user: LoginSchema, db: Session = Depends(get_db)):
 	return controller.login(user, db)
 
 
-@router.get("/logout", status_code=status.HTTP_200_OK)
+@router.post("/logout", status_code=status.HTTP_200_OK)
 def logout_endpoint():
 	return controller.logout()
 
 
+@router.post("/is-authenticated", status_code=status.HTTP_200_OK, response_model=UserResponseSchema)
 @router.post("/is-authenticat", status_code=status.HTTP_200_OK, response_model=UserResponseSchema)
 def is_authenticat_endpoint(request: Request, db: Session = Depends(get_db)):
 	return controller.is_authenticated(request, db)
@@ -59,21 +71,13 @@ def send_otp_endpoint(
 
 
 @router.post("/verify-otp", status_code=status.HTTP_200_OK)
-def verify_otp_endpoint(
-	email: str,
-	otp: str,
-	db: Session = Depends(get_db),
-):
-	return controller.verify_otp(email, otp, db)
+def verify_otp_endpoint(body: VerifyOTPSchema, db: Session = Depends(get_db)):
+	return controller.verify_otp(body.email, body.otp, db)
 
 
 @router.put("/update-password", status_code=status.HTTP_200_OK)
-def update_password_endpoint(
-	user_id: int,
-	new_password: str,
-	db: Session = Depends(get_db),
-):
-	return controller.update_password(user_id, new_password, db)
+def update_password_endpoint(user_id: int, body: UpdatePasswordSchema, db: Session = Depends(get_db)):
+	return controller.update_password(user_id, body.new_password, db)
 
 
 @router.get("/get_user_info/{user_id}", status_code=status.HTTP_200_OK, response_model=UserResponseSchema)
@@ -91,10 +95,52 @@ def update_user_info_endpoint(user_id: int, body: UserUpdateSchema, db: Session 
 
 
 @router.delete("/remove_user/{user_id}", status_code=status.HTTP_200_OK)
-def delete_user_endpoint(user_id: int, password: str, db: Session = Depends(get_db), current_user: UserModel = Depends(controller.is_authenticated)):
+def delete_user_endpoint(user_id: int, body: PasswordSchema, db: Session = Depends(get_db), current_user: UserModel = Depends(controller.is_authenticated)):
 	if current_user.id != user_id:
 		raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-	return controller.delete_user(user_id, password, db)
+	return controller.delete_user(user_id, body.password, db)
 
 
+@router.post("/verify-password-only", status_code=status.HTTP_200_OK)
+def verify_password_only_endpoint(body: PasswordSchema, current_user: UserModel = Depends(controller.is_authenticated)):
+	if not controller.verify_password(body.password, current_user.password):
+		raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect password")
+	return {"message": "Password verified"}
 
+
+@router.get("/check-subscription", status_code=status.HTTP_200_OK)
+def check_subscription_endpoint(user_id: int, db: Session = Depends(get_db), current_user: UserModel = Depends(controller.is_authenticated)):
+	if current_user.id != user_id:
+		raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+	return controller.check_subscription(user_id, db)
+
+@router.get("/credits", status_code=status.HTTP_200_OK, response_model=UserResponseSchema)
+def get_credits_endpoint(db: Session = Depends(get_db), current_user: UserModel = Depends(controller.is_authenticated)):
+    return controller.get_user_credits(current_user, db)
+
+@router.post("/update-subscription", status_code=status.HTTP_200_OK)
+def update_subscription_endpoint(user_id: int, subscription_type: str, subscription_days: int, db: Session = Depends(get_db), current_user: UserModel = Depends(controller.is_authenticated)):
+	if current_user.id != user_id:
+		raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+	return controller.update_subscription(user_id, subscription_type, subscription_days, db)
+
+
+@router.post("/submit-support", status_code=status.HTTP_200_OK)
+def submit_support_endpoint(
+	body: SupportRequestSchema,
+	background_tasks: BackgroundTasks,
+):
+	success = services.send_email.send_support_email(
+		email_from=body.email,
+		category=body.category,
+		details=body.details,
+		background_tasks=background_tasks,
+	)
+
+	if not success:
+		raise HTTPException(
+			status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+			detail="Failed to send support email. Please try again later."
+		)
+
+	return {"message": "Support request submitted successfully"}

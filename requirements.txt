@@ -8,3 +8,19 @@ PyJWT>=2.8.0
 fastapi-mail>=1.0.0
 httpx>=0.26.0
 psycopg2-binary>=2.9.0
+python-multipart
+python-dotenv
+# HouseGAN & Graph2Plan dependencies
+torch
+torchvision
+numpy
+opencv-python
+svgwrite
+webcolors
+scikit-image
+scipy
+Pillow
+cairosvg
+bcrypt
+shapely
+imagekitio

@@ -1,81 +1,53 @@
 import random
 from typing import Optional, Callable
 from fastapi import BackgroundTasks
-from fastapi_mail import FastMail, MessageSchema, ConnectionConfig, MessageType
-from pydantic import EmailStr
 import logging
+import httpx
 from services.settings import settings
-
-# Build connection configuration from `settings` (must expose MAIL_* variables)
-def _build_mailer() -> Optional[FastMail]:
-    """Build and return a FastMail instance or None if config is incomplete.
-
-    This avoids constructing a ConnectionConfig at import time which will raise
-    a Pydantic ValidationError when environment variables are not set.
-    """
-
-    mail_username = getattr(settings, "MAIL_USERNAME", None)
-    mail_password = getattr(settings, "MAIL_PASSWORD", None)
-    mail_from = getattr(settings, "MAIL_FROM", None)
-    mail_port = getattr(settings, "MAIL_PORT", 587)
-    mail_server = getattr(settings, "MAIL_SERVER", None)
-
-    # If no mail server is configured, skip building the mailer (no-op send).
-    if not mail_server or not mail_from:
-        return None
-
-    conf = ConnectionConfig(
-        MAIL_USERNAME=mail_username,
-        MAIL_PASSWORD=mail_password,
-        MAIL_FROM=mail_from,
-        MAIL_PORT=mail_port,
-        MAIL_SERVER=mail_server,
-        MAIL_STARTTLS=True,
-        MAIL_SSL_TLS=False,
-        USE_CREDENTIALS=bool(mail_username and mail_password),
-        VALIDATE_CERTS=True,
-    )
-
-    try:
-        return FastMail(conf)
-    except Exception:
-        return None
-
-
-_mailer_instance: Optional[FastMail] = None
-def _get_mailer() -> Optional[FastMail]:
-    global _mailer_instance
-    if _mailer_instance is None:
-        _mailer_instance = _build_mailer()
-    return _mailer_instance
-
 
 def generate_otp() -> str:
     """Return a random 6-digit numeric OTP as a string."""
     return f"{random.randint(100000, 999999)}"
 
+async def _send_via_brevo(to_email: str, subject: str, html_content: str):
+    """Internal helper to send email via Brevo (formerly Sendinblue) HTTP API."""
+    api_key = getattr(settings, "BREVO_API_KEY", None)
+    if not api_key:
+        logging.error("BREVO_API_KEY not found in settings")
+        return
+
+    # Use the verified sender email from settings or default to the admin email
+    sender_email = getattr(settings, "MAIL_FROM", "autoplan3d@gmail.com")
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(
+                "https://api.brevo.com/v3/smtp/email",
+                headers={
+                    "api-key": api_key,
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                },
+                json={
+                    "sender": {"name": "AutoPlan", "email": sender_email},
+                    "to": [{"email": to_email}],
+                    "subject": subject,
+                    "htmlContent": html_content,
+                },
+                timeout=10.0
+            )
+            if response.status_code >= 400:
+                logging.error(f"Brevo API error: {response.text}")
+        except Exception as e:
+            logging.error(f"Failed to send email via Brevo: {e}")
 
 def send_otp_email(
-    email_to: EmailStr,
+    email_to: str,
     background_tasks: BackgroundTasks,
     save_callback: Optional[Callable[[str, str], None]] = None,   
     subject: str = "Your Registration OTP",
     expires_minutes: int = 10,
-) -> str:
-    """
-    Generate an OTP, queue the email to be sent in the background, and return the OTP.
-
-    Args:
-      email_to: recipient email address.
-      background_tasks: FastAPI BackgroundTasks instance.
-      save_callback: optional callable to persist the OTP (signature: fn(email, otp)).
-      subject: email subject.
-      expires_minutes: human-facing expiration time included in the message.
-
-    Returns:
-      The generated OTP string.
-    """
-
+) -> dict:
     otp = generate_otp()
 
     html = f"""
@@ -88,38 +60,36 @@ def send_otp_email(
     </html>
     """
 
-    message = MessageSchema(
-        subject=subject,
-        recipients=[email_to],
-        body=html,
-        subtype=MessageType.html,
-    )
-
-    # Optionally persist OTP (e.g., DB or cache) before sending
     if save_callback:
         try:
             save_callback(email_to, otp)
         except Exception:
-            # Do not block sending if persistence fails; caller may handle logging
             pass
 
-    # Queue the send call; FastMail.send_message is async so pass it to background tasks
-    mailer = _get_mailer()
-    if mailer is None:
-        logging.warning(
-            "Email not sent: mailer not configured (MAIL_SERVER or MAIL_FROM missing)"
-        )
-        return {
-            "otp": otp,
-            "mail_sent": False,
-            "message": (
-                "OTP generated, but email was not sent because SMTP settings are missing. "
-                "Check MAIL_SERVER and MAIL_FROM in services/.env."
-            ),
-        }
-
-    background_tasks.add_task(mailer.send_message, message)
+    background_tasks.add_task(_send_via_brevo, email_to, subject, html)
     return {"otp": otp}
 
+def send_support_email(
+    email_from: str,
+    category: str,
+    details: str,
+    background_tasks: BackgroundTasks,
+) -> bool:
+    admin_email = getattr(settings, "ADMIN_EMAIL", "autoplan3d@gmail.com")
 
-__all__ = ["generate_otp", "send_otp_email"]   # it means that when we import * from this module, only these two functions will be imported.
+    html = f"""
+    <html>
+        <body>
+            <h3>New Support Request</h3>
+            <p><b>User Email:</b> {email_from}</p>
+            <p><b>Category:</b> {category}</p>
+            <p><b>Details:</b></p>
+            <p style="white-space: pre-wrap;">{details}</p>
+        </body>
+    </html>
+    """
+
+    background_tasks.add_task(_send_via_brevo, admin_email, f"Support Request: {category}", html)
+    return True
+
+__all__ = ["generate_otp", "send_otp_email", "send_support_email"]
